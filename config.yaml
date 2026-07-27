@@ -1,0 +1,292 @@
+# CountyWatch config
+# Edit this file to add jurisdictions, bodies, and relevance rules.
+# The adapters read from here so you never touch code to add a county.
+
+# ---------------------------------------------------------------------------
+# JURISDICTIONS
+# platform "legistar" is fully supported by the legistar adapter.
+# platform "html" means a page that needs a light scraper (MACs, some OR/ID bodies).
+# For legistar, set "subdomain" (the part before .legistar.com). The adapter
+# derives both the public calendar and the Web API base from it, and will probe
+# https://webapi.legistar.com/v1/{subdomain}/events to see if the API is enabled.
+# ---------------------------------------------------------------------------
+
+jurisdictions:
+
+  # ---- Oaktree, Northern California (all four on Granicus Legistar) ----
+  - name: Lake County
+    project: oaktree
+    platform: legistar
+    subdomain: countyoflake
+    bodies:
+      - Board of Supervisors
+      - Planning Commission
+
+  - name: Mendocino County
+    project: oaktree
+    platform: legistar
+    subdomain: mendocino
+    bodies:
+      - Board of Supervisors
+      - Planning Commission
+    watch_notes: "Mill Creek permit lives here. Keep the permit-name terms sharp."
+
+  - name: Napa County
+    project: oaktree
+    platform: legistar
+    subdomain: napa
+    bodies:
+      - Board of Supervisors
+      - Planning Commission
+
+  - name: Sonoma County
+    project: oaktree
+    platform: legistar
+    subdomain: sonoma-county
+    bodies:
+      - Board of Supervisors
+      - Planning Commission
+
+  # ---- Lake County Municipal Advisory Committees (confirm source per body) ----
+  # These are advisory bodies. Some post to the county site, some to their own
+  # page or Facebook. Set url once you confirm where each posts agendas.
+  - name: Middletown Area Town Hall
+    project: oaktree
+    platform: html
+    url: ""          # TODO: confirm agenda source
+    enabled: false
+
+  - name: Cobb Area Council
+    project: oaktree
+    platform: html
+    url: ""          # TODO: confirm agenda source
+    enabled: false
+
+  - name: Eastern Region Town Hall
+    project: oaktree
+    platform: html
+    url: ""          # TODO: confirm agenda source
+    enabled: false
+
+  - name: Western Region Town Hall
+    project: oaktree
+    platform: html
+    url: ""          # TODO: confirm agenda source
+    enabled: false
+
+  # ---- Yogi, Idaho and Oregon ----
+  # No API, no shared platform. Each site needs its own small parser in
+  # html_scraper.py. These are the two anchor counties around Ontario. If the
+  # footprint reaches Washington County ID (Weiser) or Canyon County ID, add them.
+
+  - name: Malheur County
+    project: yogi
+    platform: html
+    scraper: malheur          # custom parser key in html_scraper.py
+    enabled: true
+    sources:
+      # County Court (judge + commissioners). Agendas and minutes are PDFs on a
+      # WordPress site. The parser lists the County Court Minutes/agenda folder
+      # and pulls the newest PDFs, then extracts text.
+      - body: County Court
+        url: https://www.malheurco.org/county-clerk/county-court-agendas-minutes/
+      # Land use runs here. Meets the fourth Thursday monthly. Highest signal for
+      # a seismic and drilling footprint.
+      - body: Planning Commission
+        url: https://www.malheurco.org/county-court/boards-committees/
+    watch_notes: "Argus Observer covers county energy and land-use news closely. Good secondary source."
+
+  - name: Payette County
+    project: yogi
+    platform: html
+    scraper: payette          # custom parser key in html_scraper.py
+    enabled: true
+    sources:
+      - body: Board of Commissioners
+        url: https://www.payettecounty.org/elected-officials/commissioners/agenda
+      # High signal. P&Z agendas already list CUPs down to the parcel and
+      # section-township-range.
+      - body: Planning and Zoning
+        url: https://www.payettecounty.org/departments/planning-and-zoning/meeting-agenda
+
+# ---------------------------------------------------------------------------
+# RELEVANCE RULES
+# Stage 1 is a cheap keyword prefilter. Any item whose title or agenda text hits
+# a term here gets passed to Stage 2 (the Claude API scoring pass). Tune freely.
+# Group terms so the digest can tell you *why* something matched.
+# ---------------------------------------------------------------------------
+
+relevance:
+  client: Koloma
+
+  keyword_groups:
+
+    client:
+      - Koloma
+
+    hydrogen:
+      - geologic hydrogen
+      - natural hydrogen
+      - white hydrogen
+      - native hydrogen
+      - stimulated hydrogen
+      - hydrogen exploration
+      - subsurface hydrogen
+
+    exploration_and_permits:
+      - seismic survey
+      - 2D seismic
+      - exploratory well
+      - well permit
+      - drilling permit
+      - mineral exploration
+      - use permit
+      - conditional use permit
+      - grading permit
+      - encroachment permit
+
+    regulatory_hooks:
+      - CEQA
+      - initial study
+      - mitigated negative declaration
+      - environmental impact report
+      - general plan amendment
+      - zoning
+      - CalGEM          # CA oil, gas, geothermal well regulator. Directly relevant to drilling permits.
+      - DOGGR
+
+    named_matters:
+      - Mill Creek
+      - Oaktree
+
+    tribal:
+      - Middletown Rancheria
+      - tribal consultation
+      - AB 52
+      - sacred sites
+      - cultural resources
+
+    opposition_signals:
+      - zoning ordinance
+      - land use ordinance
+      - moratorium
+      - drilling ordinance
+      - mining ordinance
+      - ban
+      - appeal
+      - referendum
+
+  # Parcels or APNs tied to your project footprint. Add as you get them.
+  # These are high-signal, treat any hit as top priority.
+  parcels: []
+
+# ---------------------------------------------------------------------------
+# DELIVERY
+# How you want the heads-up. Start with markdown_file, add email or slack later.
+# ---------------------------------------------------------------------------
+
+delivery:
+  mode: email                # options: markdown_file | email | slack
+  output_dir: ./digests      # digests are still written here as an archive
+  email:
+    to: ""                   # TODO: your inbox
+    from: "countywatch@cloutadvocacy.com"   # confirm this matches your sending domain
+    subject_prefix: "[CountyWatch]"
+    # Provider credentials come from env, not here. See PLAN.md "Email delivery".
+    # Send only when there is at least one flagged item, unless send_empty is true.
+    send_empty: false
+
+# ---------------------------------------------------------------------------
+# NEWS SOURCES
+# Google News RSS queries. Each becomes a separate feed.
+# Operators: OR, "quoted phrase", site:domain.com, when:7d
+# ---------------------------------------------------------------------------
+
+news_sources:
+
+  # geologic-hydrogen-global disabled — too broad, mostly global science noise
+  # - name: geologic-hydrogen-global
+  #   jurisdiction: News
+  #   query: '"geologic hydrogen" OR "natural hydrogen" OR "white hydrogen"'
+
+  - name: koloma
+    jurisdiction: News
+    query: 'Koloma when:1y'
+
+  - name: oaktree-counties
+    jurisdiction: News
+    query: '("Lake County" OR Mendocino OR Napa OR Sonoma) (hydrogen OR seismic OR "use permit" OR CEQA OR drilling) when:1y'
+
+  - name: yogi-counties
+    jurisdiction: News
+    query: '(Malheur OR Payette OR "Ontario Oregon") (hydrogen OR seismic OR "land use" OR permit OR energy) when:1y'
+
+  - name: argus-observer
+    jurisdiction: News
+    query: 'hydrogen OR seismic OR Koloma OR energy OR drilling OR "land use" site:argusobserver.com when:1y'
+
+  - name: lake-co-news
+    jurisdiction: News
+    query: 'hydrogen OR seismic OR Koloma OR energy OR drilling OR "land use" site:lakeconews.com when:1y'
+
+  # ---- Tier 1 local outlets (broad net: local coverage is the point) ----
+  # Independent-Enterprise (Payette) lives under argusobserver.com, so the
+  # argus-observer feed above already covers it. No separate domain feed needed.
+
+  - name: lake-record-bee
+    jurisdiction: News
+    query: 'hydrogen OR seismic OR Koloma OR energy OR drilling OR "land use" site:record-bee.com when:1y'
+
+  - name: elkhorn-media-group
+    jurisdiction: News
+    query: 'hydrogen OR seismic OR Koloma OR energy OR drilling OR "land use" site:elkhornmediagroup.com when:1y'
+
+  # ---- Tier 2 regional backstop (tight project net to avoid flooding) ----
+  # Oaktree side
+  - name: press-democrat
+    jurisdiction: News
+    query: 'Koloma OR "natural hydrogen" OR "geologic hydrogen" OR seismic OR CEQA site:pressdemocrat.com when:1y'
+
+  - name: napa-register
+    jurisdiction: News
+    query: 'Koloma OR "natural hydrogen" OR "geologic hydrogen" OR seismic OR CEQA site:napavalleyregister.com when:1y'
+
+  - name: ukiah-daily-journal
+    jurisdiction: News
+    query: 'Koloma OR "natural hydrogen" OR "geologic hydrogen" OR seismic OR CEQA site:ukiahdailyjournal.com when:1y'
+
+  - name: mendocino-voice
+    jurisdiction: News
+    query: 'Koloma OR "natural hydrogen" OR "geologic hydrogen" OR seismic OR CEQA site:mendovoice.com when:1y'
+
+  # Yogi side
+  - name: idaho-press
+    jurisdiction: News
+    query: 'Koloma OR "natural hydrogen" OR "geologic hydrogen" OR seismic OR CEQA site:idahopress.com when:1y'
+
+  - name: idaho-statesman
+    jurisdiction: News
+    query: 'Koloma OR "natural hydrogen" OR "geologic hydrogen" OR seismic OR CEQA site:idahostatesman.com when:1y'
+
+  - name: idaho-capital-sun
+    jurisdiction: News
+    query: 'Koloma OR "natural hydrogen" OR "geologic hydrogen" OR seismic OR CEQA site:idahocapitalsun.com when:1y'
+
+  - name: oregon-capital-chronicle
+    jurisdiction: News
+    query: 'Koloma OR "natural hydrogen" OR "geologic hydrogen" OR seismic OR CEQA site:oregoncapitalchronicle.com when:1y'
+
+  - name: opb
+    jurisdiction: News
+    query: 'Koloma OR "natural hydrogen" OR "geologic hydrogen" OR seismic OR CEQA site:opb.org when:1y'
+
+  # Capital Press: ag trade, most likely to cover a seismic route across irrigated ground
+  - name: capital-press
+    jurisdiction: News
+    query: 'Koloma OR "natural hydrogen" OR "geologic hydrogen" OR seismic OR CEQA OR "land use" site:capitalpress.com when:1y'
+
+# lookahead and lookback windows in days
+windows:
+  upcoming_days: 14
+  recent_days: 7
+  news_recent_days: 14   # drop news older than this; stops a story riding forever

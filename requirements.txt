@@ -1,0 +1,10 @@
+requests
+pyyaml
+beautifulsoup4
+pypdf
+lxml
+anthropic
+python-dotenv
+feedparser
+markdown
+tzdata

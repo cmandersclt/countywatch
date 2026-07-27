@@ -1,0 +1,10 @@
+# secrets and local state never go to the repo
+.env
+*.env
+state.db
+digests/
+__pycache__/
+*.pyc
+*.bak
+*.bak*
+.python-version
