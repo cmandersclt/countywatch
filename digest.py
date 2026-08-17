@@ -162,6 +162,23 @@ def _government_section(items: list[dict]) -> list[str]:
     return lines
 
 
+def _context_line(it: dict) -> list:
+    """A short 'seen before' note when this matter has prior history.
+
+    Returns [] when the matter is genuinely new (first flagged this run) so a
+    fresh item stays clean, and a one-line continuation note otherwise.
+    """
+    mfs = it.get("matter_first_seen")
+    if not mfs:
+        return []
+    day = str(mfs)[:10]
+    from datetime import datetime, timezone
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if day >= today:
+        return []
+    return [f"_First flagged {day}; this matter has appeared before and is still active._", ""]
+
+
 def _gov_item(it: dict) -> list[str]:
     tag    = _status_tag(it)
     score  = it.get("score", "?")
@@ -181,6 +198,7 @@ def _gov_item(it: dict) -> list[str]:
     hl = headline if len(headline) <= 160 else headline[:160] + "…"
     block = [f"**{pin}{tag}{hl}**", ""]
     block += [f"_{label} · {date} · score {score}_", ""]
+    block += _context_line(it)
     if explanation:
         block += [explanation, ""]
     if url:
@@ -209,6 +227,7 @@ def _news_section(items: list[dict]) -> list[str]:
 
         lines += [f"**{tag}{hl}**", ""]
         lines += [f"_{meta}_", ""]
+        lines += _context_line(it)
         if explanation:
             lines += [explanation, ""]
         if url:
@@ -255,3 +274,4 @@ def print_items(items: list[dict], preview_chars: int = 400):
         if explanation:
             print(f"      {explanation[:preview_chars]}")
         print()
+      
