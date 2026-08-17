@@ -11,6 +11,7 @@ because it appeared yesterday.
 
 import hashlib
 import os
+import re
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -22,7 +23,8 @@ _DATA_DIR = os.environ.get("DATA_DIR")
 DB_PATH = (Path(_DATA_DIR) if _DATA_DIR else Path(__file__).parent) / "state.db"
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-NEW_WINDOW_DAYS = 7  # an item stays tagged NEW for this many days from first_seen
+NEW_WINDOW_DAYS = 14   # a matter reads NEW for this many days from its first sighting
+MATTER_MEMORY_DAYS = 120  # how long a matter is remembered so returns stay connected
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS seen_items (
@@ -33,6 +35,12 @@ CREATE TABLE IF NOT EXISTS seen_items (
     title        TEXT NOT NULL,
     url          TEXT,
     first_seen   TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS matter_ids (
+    ident      TEXT PRIMARY KEY,
+    first_seen TEXT NOT NULL,
+    last_seen  TEXT NOT NULL,
+    label      TEXT
 );
 """
 
@@ -45,6 +53,33 @@ def item_id(item: dict) -> str:
         item.get("title", ""),
     ])
     return hashlib.sha256(key.encode()).hexdigest()[:16]
+
+
+# Stable identifiers that survive across meetings: permit/case numbers and APNs.
+# These let the same underlying matter be recognised on a later agenda even
+# though its meeting date and exact title have changed.
+_IDENT_RE = re.compile(
+    r'\b('
+    r'\d{3}-\d{3}-\d{2,3}'                    # APN, e.g. 115-007-03
+    r'|[A-Z]{1,4}[-\s]?\d{2}[-\s]?\d{2,5}'    # UP 21-17, PL-26-357, P22-00307
+    r')\b'
+)
+
+def _extract_idents(item: dict) -> list[str]:
+    """Return stable matter identifiers (permit/case/APN numbers) for an item.
+
+    Threading only on real identifiers keeps the 'first flagged' history claim
+    trustworthy: a match means two agenda lines genuinely cite the same number,
+    not that their wording happened to overlap. Items with no identifier simply
+    don't thread, which is the safe default.
+    """
+    title = item.get("title", "") or ""
+    found = set()
+    for m in _IDENT_RE.findall(title):
+        norm = re.sub(r'[\s-]', '', m).upper()
+        if len(norm) >= 5:
+            found.add(norm)
+    return sorted(found)
 
 
 @contextmanager
@@ -140,8 +175,32 @@ def record_and_tag(items: list[dict], path: Path = DB_PATH,
     out = []
     for it, iid in zip(items, ids):
         first_seen = seen.get(iid, now_iso)
-        out.append({**it, "status": _status_for(first_seen, now, cutoff),
-                    "first_seen": first_seen})
+        out.append({**it, "first_seen": first_seen})
+
+    # --- matter threads: connect each item to earlier sightings of the same
+    # matter (by permit/case/APN number), then set status and first-flagged
+    # context off the MATTER rather than the exact agenda line.
+    with _db(path) as conn:
+        for it in out:
+            idents = _extract_idents(it)
+            matter_first = None
+            if idents:
+                q = ",".join("?" * len(idents))
+                mrows = conn.execute(
+                    f"SELECT first_seen FROM matter_ids WHERE ident IN ({q})", idents
+                ).fetchall()
+                if mrows:
+                    matter_first = min(r["first_seen"] for r in mrows)
+                for ident in idents:
+                    conn.execute(
+                        "INSERT INTO matter_ids (ident, first_seen, last_seen, label) "
+                        "VALUES (?,?,?,?) "
+                        "ON CONFLICT(ident) DO UPDATE SET last_seen=excluded.last_seen",
+                        (ident, matter_first or now_iso, now_iso, (it.get("title") or "")[:120]),
+                    )
+            it["matter_first_seen"] = matter_first  # None the first time a matter is seen
+            basis = matter_first or it["first_seen"]
+            it["status"] = _status_for(basis, now, cutoff)
     return out
 
 
@@ -169,8 +228,12 @@ def tag_status(items: list[dict], path: Path = DB_PATH,
     out = []
     for it, iid in zip(items, ids):
         first_seen = fs_map.get(iid, now.isoformat())
-        out.append({**it, "status": _status_for(first_seen, now, cutoff),
-                    "first_seen": first_seen})
+        # Prefer the matter's first sighting (set upstream) so a returning
+        # matter keeps its ONGOING status and does not read as brand new here.
+        basis = it.get("matter_first_seen") or first_seen
+        out.append({**it, "status": _status_for(basis, now, cutoff),
+                    "first_seen": first_seen,
+                    "matter_first_seen": it.get("matter_first_seen")})
     return out
 
 
