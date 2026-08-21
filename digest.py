@@ -26,6 +26,28 @@ _PROJECT_LABEL = {
     "none":    "Other",
 }
 _PIN_GROUPS = {"parcels", "named_matters"}
+PROMOTE_SCORE = 3  # a matter at/above this always rides the main brief daily
+
+
+def _is_main(it: dict) -> bool:
+    """True if an item belongs in the main brief, False if it drops to the
+    quiet 'Still open' tail. A matter earns the main brief when it is genuinely
+    new, scored high enough for daily eyes, or something about it moved."""
+    if not it.get("is_repeat"):
+        return True  # first time we've seen this matter
+    if int(it.get("score", 0) or 0) >= PROMOTE_SCORE:
+        return True  # high value always rides
+    if it.get("change_reasons"):
+        return True  # something moved since last time
+    return False
+
+
+def _change_note(it: dict) -> list:
+    """One line explaining why a repeat is back in the brief today."""
+    reasons = it.get("change_reasons")
+    if not reasons or not it.get("is_repeat"):
+        return []
+    return [f"_Back in the brief: {'; '.join(reasons)}._", ""]
 
 
 def write_digest(items: list[dict], stats: dict = None,
@@ -70,6 +92,8 @@ def _render(items: list[dict], stats: dict, today: str) -> str:
     now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     total = len(items)
     new_count = sum(1 for it in items if it.get("status") == "NEW")
+    tail_count = sum(1 for it in items if not _is_main(it))
+    focus_count = total - tail_count
 
     errors = stats.get("errors", [])
     err_n = len(errors)
@@ -79,8 +103,9 @@ def _render(items: list[dict], stats: dict, today: str) -> str:
     lines = [
         f"# CountyWatch Brief — {today}",
         "",
-        f"**{total} relevant item{_plural(total)} · "
+        f"**{focus_count} in focus · "
         f"{new_count} new this week · "
+        f"{tail_count} still open · "
         f"{err_n} source error{_plural(err_n)}**",
         "",
         f"_Health: {gov} government source{_plural(gov) if isinstance(gov, int) else ''} "
@@ -101,9 +126,14 @@ def _render(items: list[dict], stats: dict, today: str) -> str:
     gov_items = [it for it in items if it.get("jurisdiction") != "News"]
     news_items = [it for it in items if it.get("jurisdiction") == "News"]
 
-    lines += _government_section(gov_items)
-    lines += _news_section(news_items)
+    main_gov = [it for it in gov_items if _is_main(it)]
+    main_news = [it for it in news_items if _is_main(it)]
+    tail_items = [it for it in items if not _is_main(it)]
+
+    lines += _government_section(main_gov)
+    lines += _news_section(main_news)
     lines += _misc_section([])  # reserved; hidden while empty
+    lines += _still_open_section(tail_items)
 
     if total == 0:
         lines += [
@@ -140,6 +170,31 @@ def _coverage_section(rows: list[dict]) -> list[str]:
             date = r.get("date", "")
             date_txt = f" ({date})" if date else ""
             lines.append(f"- {jur} — {body}: agenda read{date_txt}, {flag_txt}")
+    lines += ["", "---", ""]
+    return lines
+
+
+def _still_open_section(items: list[dict]) -> list[str]:
+    """Matters seen before with nothing material changed. One line each, so
+    nothing disappears but the top of the brief stays uncluttered. Anything
+    here returns to the main brief above the moment something moves."""
+    if not items:
+        return []
+    lines = ["## Still open", "",
+             "_Seen before, nothing material changed since. Listed so nothing "
+             "drops off; each returns to the brief above if its score moves, it "
+             "lands on a new agenda, or new materials appear._", ""]
+    for it in sorted(items, key=_sort_key):
+        label = (it.get("headline") or it.get("title") or "").strip()
+        if len(label) > 90:
+            label = label[:90] + "…"
+        jur = it.get("jurisdiction", "")
+        body = it.get("body", "")
+        score = it.get("score", "?")
+        first = str(it.get("matter_first_seen") or it.get("first_seen") or "")[:10]
+        src = jur + (f" / {body}" if body and body != jur else "")
+        first_txt = f", first flagged {first}" if first else ""
+        lines.append(f"- **{label}** — {src}, score {score}{first_txt}")
     lines += ["", "---", ""]
     return lines
 
@@ -199,6 +254,7 @@ def _gov_item(it: dict) -> list[str]:
     block = [f"**{pin}{tag}{hl}**", ""]
     block += [f"_{label} · {date} · score {score}_", ""]
     block += _context_line(it)
+    block += _change_note(it)
     if explanation:
         block += [explanation, ""]
     if url:
@@ -228,6 +284,7 @@ def _news_section(items: list[dict]) -> list[str]:
         lines += [f"**{tag}{hl}**", ""]
         lines += [f"_{meta}_", ""]
         lines += _context_line(it)
+        lines += _change_note(it)
         if explanation:
             lines += [explanation, ""]
         if url:
@@ -274,4 +331,3 @@ def print_items(items: list[dict], preview_chars: int = 400):
         if explanation:
             print(f"      {explanation[:preview_chars]}")
         print()
-      
