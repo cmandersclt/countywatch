@@ -144,6 +144,7 @@ def run(config_path: str = "config.yaml", only: str = None):
     scored = relevance.score_items(candidates, system_prompt)
     # Re-attach status after scoring in case the scorer rebuilt the dicts
     scored = state.tag_status(scored)
+    scored = state.annotate_changes(scored)
     scored.sort(key=lambda it: it.get("score", 0), reverse=True)
     log.info(
         f"Scoring: {len(candidates)} sent to Claude, "
