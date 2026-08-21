@@ -42,6 +42,14 @@ CREATE TABLE IF NOT EXISTS matter_ids (
     last_seen  TEXT NOT NULL,
     label      TEXT
 );
+CREATE TABLE IF NOT EXISTS matter_state (
+    track_key         TEXT PRIMARY KEY,
+    last_score        INTEGER,
+    last_meeting_date TEXT,
+    last_fingerprint  TEXT,
+    label             TEXT,
+    updated           TEXT
+);
 """
 
 
@@ -235,6 +243,87 @@ def tag_status(items: list[dict], path: Path = DB_PATH,
                     "first_seen": first_seen,
                     "matter_first_seen": it.get("matter_first_seen")})
     return out
+
+
+def _fingerprint(item: dict) -> str:
+    """A stable hash of an item's substance, to detect materials changing
+    while it sits on the same meeting."""
+    txt = (item.get("doc_text") or item.get("title") or "")
+    txt = re.sub(r"\s+", " ", txt).strip().lower()
+    return hashlib.sha256(txt.encode()).hexdigest()[:16]
+
+
+def _track_keys(item: dict) -> list[str]:
+    """Keys under which a matter's change-state is stored. Prefer permit/case/
+    APN identifiers so the matter tracks across meetings; fall back to the exact
+    item id so even an un-numbered agenda line can be recognised as a repeat."""
+    idents = _extract_idents(item)
+    if idents:
+        return ["id:" + i for i in idents]
+    return ["iid:" + item_id(item)]
+
+
+def annotate_changes(items: list[dict], path: Path = DB_PATH) -> list[dict]:
+    """Mark each scored item with what changed since its matter was last seen.
+
+    Sets on each item:
+      is_repeat      True if this matter has been recorded before
+      prev_score     the highest score previously seen for it (or None)
+      change_reasons a list of plain reasons it moved (empty if nothing did)
+
+    The digest uses these to keep unchanged low-score repeats in a quiet tail
+    while always resurfacing anything that genuinely moved. Runs AFTER scoring.
+    """
+    if not items:
+        return items
+    now_iso = datetime.now(timezone.utc).isoformat()
+    with _db(path) as conn:
+        for it in items:
+            keys = _track_keys(it)
+            q = ",".join("?" * len(keys))
+            rows = conn.execute(
+                f"SELECT last_score, last_meeting_date, last_fingerprint "
+                f"FROM matter_state WHERE track_key IN ({q})", keys
+            ).fetchall()
+
+            score = int(it.get("score", 0) or 0)
+            mdate = it.get("meeting_date", "") or ""
+            fp = _fingerprint(it)
+
+            prev_scores = [r["last_score"] for r in rows if r["last_score"] is not None]
+            prev_dates = {r["last_meeting_date"] for r in rows if r["last_meeting_date"]}
+            prev_fps = {r["last_fingerprint"] for r in rows if r["last_fingerprint"]}
+            is_repeat = bool(rows)
+            prev_score = max(prev_scores) if prev_scores else None
+
+            reasons = []
+            if is_repeat:
+                if prev_score is not None and score > prev_score:
+                    reasons.append(f"score rose from {prev_score} to {score}")
+                elif prev_score is not None and score < prev_score:
+                    reasons.append(f"score dropped from {prev_score} to {score} (kept visible)")
+                if mdate and mdate not in prev_dates:
+                    reasons.append(f"now on a new agenda date ({mdate})")
+                elif mdate and mdate in prev_dates and fp not in prev_fps:
+                    reasons.append("agenda text or materials changed")
+
+            it["is_repeat"] = is_repeat
+            it["prev_score"] = prev_score
+            it["change_reasons"] = reasons
+
+            for k in keys:
+                conn.execute(
+                    "INSERT INTO matter_state "
+                    "(track_key, last_score, last_meeting_date, last_fingerprint, label, updated) "
+                    "VALUES (?,?,?,?,?,?) "
+                    "ON CONFLICT(track_key) DO UPDATE SET "
+                    "last_score=excluded.last_score, "
+                    "last_meeting_date=excluded.last_meeting_date, "
+                    "last_fingerprint=excluded.last_fingerprint, "
+                    "updated=excluded.updated",
+                    (k, score, mdate, fp, (it.get("title") or "")[:120], now_iso),
+                )
+    return items
 
 
 # --- Legacy helpers kept for compatibility (no longer used by the pipeline) ---
