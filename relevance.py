@@ -20,8 +20,13 @@ def prefilter(items: list[dict], relevance_cfg: dict) -> list[dict]:
     """
     Return only items that match at least one keyword or parcel.
     Each passing item gains: matched_groups (list[str]).
+
+    A keyword group listed in relevance_cfg["keyword_group_scope"] only fires
+    for items whose jurisdiction is in that group's list; groups not listed
+    there apply everywhere. "News" covers every news feed.
     """
     patterns = _compile(relevance_cfg)
+    scope = relevance_cfg.get("keyword_group_scope", {}) or {}
     if not patterns:
         # No rules configured — pass everything through unlabelled.
         return [{**it, "matched_groups": []} for it in items]
@@ -33,7 +38,14 @@ def prefilter(items: list[dict], relevance_cfg: dict) -> list[dict]:
         # including it let one stray keyword flood the entire meeting into
         # Stage 2. Fix #1 gives each item its own text, so scope to that.
         haystack = f"{item.get('title', '')} {item.get('doc_text', '')}".lower()
-        matched = [name for name, rx in patterns.items() if rx.search(haystack)]
+        jur = item.get("jurisdiction", "")
+        matched = []
+        for name, rx in patterns.items():
+            allowed = scope.get(name)
+            if allowed and jur not in allowed:
+                continue  # this group is scoped and this jurisdiction isn't in it
+            if rx.search(haystack):
+                matched.append(name)
         if matched:
             results.append({**item, "matched_groups": matched})
 
