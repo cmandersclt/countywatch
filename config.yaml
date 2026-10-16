@@ -155,6 +155,20 @@ relevance:
       - CalGEM          # CA oil, gas, geothermal well regulator. Directly relevant to drilling permits.
       - DOGGR
 
+    # Competitive energy-development landscape. SCOPED to the California (Oaktree)
+    # counties + News only (see keyword_group_scope below) so Idaho/Oregon
+    # agendas don't surface routine geothermal items that have nothing to do with
+    # Koloma. Catches EGX, the county Energy Strategy, Bottle Rock, etc.
+    geothermal:
+      - geothermal
+      - EGX
+      - Bottle Rock
+      - repowering
+      - geothermal lease
+      - energy strategy
+      - energy element
+      - Clearlake Oaks
+
     named_matters:
       - Mill Creek
       - Oaktree
@@ -175,6 +189,17 @@ relevance:
       - ban
       - appeal
       - referendum
+
+  # Limit certain keyword groups to specific jurisdictions. A group listed here
+  # only fires for items whose jurisdiction is in its list; groups not listed
+  # here apply everywhere as before. "News" covers all news feeds.
+  keyword_group_scope:
+    geothermal:
+      - Lake County
+      - Mendocino County
+      - Napa County
+      - Sonoma County
+      - News
 
   # Parcels or APNs tied to your project footprint. Add as you get them.
   # These are high-signal, treat any hit as top priority.
@@ -213,9 +238,11 @@ news_sources:
     jurisdiction: News
     query: 'Koloma when:1y'
 
+  # California anchor word required so the Florida/Illinois Lake Counties drop
+  # out. Widened to include geothermal and energy-strategy terms.
   - name: oaktree-counties
     jurisdiction: News
-    query: '("Lake County" OR Mendocino OR Napa OR Sonoma) (hydrogen OR seismic OR "use permit" OR CEQA OR drilling) when:1y'
+    query: '(California OR Lakeport OR Clearlake OR Ukiah OR "Santa Rosa") ("Lake County" OR Mendocino OR Napa OR Sonoma) (hydrogen OR geothermal OR seismic OR "use permit" OR CEQA OR drilling OR "energy strategy") when:1y'
 
   - name: yogi-counties
     jurisdiction: News
@@ -225,9 +252,11 @@ news_sources:
     jurisdiction: News
     query: 'hydrogen OR seismic OR Koloma OR energy OR drilling OR "land use" site:argusobserver.com when:1y'
 
+  # Lake County California outlet. Widened with geothermal/EGX/Bottle Rock/Energy
+  # Strategy so the competitive geothermal landscape gets caught here.
   - name: lake-co-news
     jurisdiction: News
-    query: 'hydrogen OR seismic OR Koloma OR energy OR drilling OR "land use" site:lakeconews.com when:1y'
+    query: 'hydrogen OR geothermal OR EGX OR "Bottle Rock" OR seismic OR Koloma OR energy OR drilling OR "land use" OR "energy strategy" site:lakeconews.com when:1y'
 
   # ---- Tier 1 local outlets (broad net: local coverage is the point) ----
   # Independent-Enterprise (Payette) lives under argusobserver.com, so the
@@ -235,7 +264,7 @@ news_sources:
 
   - name: lake-record-bee
     jurisdiction: News
-    query: 'hydrogen OR seismic OR Koloma OR energy OR drilling OR "land use" site:record-bee.com when:1y'
+    query: 'hydrogen OR geothermal OR EGX OR "Bottle Rock" OR seismic OR Koloma OR energy OR drilling OR "land use" OR "energy strategy" site:record-bee.com when:1y'
 
   - name: elkhorn-media-group
     jurisdiction: News
@@ -245,19 +274,19 @@ news_sources:
   # Oaktree side
   - name: press-democrat
     jurisdiction: News
-    query: 'Koloma OR "natural hydrogen" OR "geologic hydrogen" OR seismic OR CEQA site:pressdemocrat.com when:1y'
+    query: 'Koloma OR "natural hydrogen" OR "geologic hydrogen" OR geothermal OR seismic OR CEQA site:pressdemocrat.com when:1y'
 
   - name: napa-register
     jurisdiction: News
-    query: 'Koloma OR "natural hydrogen" OR "geologic hydrogen" OR seismic OR CEQA site:napavalleyregister.com when:1y'
+    query: 'Koloma OR "natural hydrogen" OR "geologic hydrogen" OR geothermal OR seismic OR CEQA site:napavalleyregister.com when:1y'
 
   - name: ukiah-daily-journal
     jurisdiction: News
-    query: 'Koloma OR "natural hydrogen" OR "geologic hydrogen" OR seismic OR CEQA site:ukiahdailyjournal.com when:1y'
+    query: 'Koloma OR "natural hydrogen" OR "geologic hydrogen" OR geothermal OR seismic OR CEQA site:ukiahdailyjournal.com when:1y'
 
   - name: mendocino-voice
     jurisdiction: News
-    query: 'Koloma OR "natural hydrogen" OR "geologic hydrogen" OR seismic OR CEQA site:mendovoice.com when:1y'
+    query: 'Koloma OR "natural hydrogen" OR "geologic hydrogen" OR geothermal OR seismic OR CEQA site:mendovoice.com when:1y'
 
   # Yogi side
   - name: idaho-press
