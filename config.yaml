@@ -111,6 +111,28 @@ jurisdictions:
         url: https://www.payettecounty.org/other-resources/planning-zoning-public-notices
         parser: notices
 
+  - name: Gem County
+    project: yogi
+    platform: html
+    scraper: gem              # custom parser key in html_scraper.py
+    enabled: true
+    sources:
+      # Revize CMS, Emmett ID. The commissioners page carries a single "current
+      # agenda" PDF link; take the latest. Agenda PDFs are digital text.
+      - body: Board of Commissioners
+        url: https://www.gemcounty.org/government/county_commissioners/agendas_and_minutes.php
+        pdf_match: "Commissioners? Agenda"
+        pick: latest
+      # P&Z legal notices are SCANNED images (no extractable text), so we read
+      # the text agendas instead — they name each hearing item with its case
+      # number, applicant, request, address and parcel. pdf_match restricts to
+      # the agenda folder so minutes and the scanned notices are skipped.
+      - body: Planning and Zoning
+        url: https://www.gemcounty.org/departments_offices/development_services/zoning_commission_meeting_and_legal_notice.php
+        pdf_match: "Planning_Zoning/Agendas"
+        pick: window
+    watch_notes: "Emmett, ID. P&Z legal notices are scans; agendas are text and carry the hearing detail."
+
 # ---------------------------------------------------------------------------
 # RELEVANCE RULES
 # Stage 1 is a cheap keyword prefilter. Any item whose title or agenda text hits
@@ -248,7 +270,7 @@ news_sources:
 
   - name: yogi-counties
     jurisdiction: News
-    query: '(Malheur OR Payette OR "Ontario Oregon") (hydrogen OR seismic OR "land use" OR permit OR energy) when:1y'
+    query: '(Malheur OR Payette OR Gem OR "Ontario Oregon" OR Emmett) (hydrogen OR seismic OR "land use" OR permit OR energy) when:1y'
 
   - name: argus-observer
     jurisdiction: News
