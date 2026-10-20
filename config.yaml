@@ -85,16 +85,21 @@ jurisdictions:
     scraper: malheur          # custom parser key in html_scraper.py
     enabled: true
     sources:
-      # County Court (judge + commissioners). Agendas and minutes are PDFs on a
-      # WordPress site. The parser lists the County Court Minutes/agenda folder
-      # and pulls the newest PDFs, then extracts text.
+      # County Court (judge + commissioners) — the governing body; land-use and
+      # ordinance matters run through it. WordPress site behind a Sucuri firewall
+      # (browser User-Agent clears it). Agendas are text PDFs linked with a
+      # "Month DD, YYYY" label; pull the ones in the current window and extract.
       - body: County Court
         url: https://www.malheurco.org/county-clerk/county-court-agendas-minutes/
-      # Land use runs here. Meets the fourth Thursday monthly. Highest signal for
-      # a seismic and drilling footprint.
+        pdf_match: "County.{0,4}Court.{0,4}Agendas"
+        pick: window
+      # Planning Commission hearings / public notices. Carries the hearing
+      # schedule and notice text; scanned as body text so a relevant hearing
+      # (applicant, CUP, seismic) trips the keyword filter.
       - body: Planning Commission
-        url: https://www.malheurco.org/county-court/boards-committees/
-    watch_notes: "Argus Observer covers county energy and land-use news closely. Good secondary source."
+        url: https://www.malheurco.org/planning-department/notices/
+        mode: notices
+    watch_notes: "WordPress behind Sucuri. County Court meets most Wednesdays; Planning Commission monthly. Argus Observer is a good secondary source."
 
   - name: Payette County
     project: yogi
