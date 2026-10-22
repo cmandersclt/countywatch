@@ -23,6 +23,9 @@ source routes further by a per-source `parser`/`mode`:
            so the shared session sends a browser UA; if a challenge still comes
            back it is raised as a visible source error, never a silent skip.
 
+Also used for 'agency' sources (state regulators such as the Idaho Oil & Gas
+Conservation Commission) via the same link-index engine in notices mode.
+
 Item shape: {jurisdiction, body, meeting_date, title, url, doc_text, meeting_doc}
 """
 
@@ -41,9 +44,10 @@ log = logging.getLogger(__name__)
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# A real browser User-Agent + Accept headers. Government WordPress/Revize sites
-# serve these fine, and crucially it clears Sucuri's basic anti-bot challenge on
-# the Malheur site, which blocks requests that don't look like a browser.
+# A real browser User-Agent + full browser header set. Government WordPress/
+# Revize sites serve these fine, and the fuller set clears Sucuri's challenge on
+# Malheur and gives the best shot at Payette's Cloudflare, which blocks requests
+# that don't look like a browser.
 _SESSION = requests.Session()
 _SESSION.verify = False
 _SESSION.headers.update({
@@ -53,6 +57,15 @@ _SESSION.headers.update({
     "Accept": ("text/html,application/xhtml+xml,application/xml;q=0.9,"
                "image/avif,image/webp,*/*;q=0.8"),
     "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "sec-ch-ua": '"Chromium";v="129", "Not=A?Brand";v="8", "Google Chrome";v="129"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Windows"',
     "X-CountyWatch": "public-records monitor; cmanders38@gmail.com",
 })
 
@@ -70,7 +83,7 @@ def fetch(jurisdiction_cfg: dict, lookback_days: int = 7, lookahead_days: int = 
     name = jurisdiction_cfg["name"]
     if scraper == "payette":
         return _scrape_inline(jurisdiction_cfg, lookback_days, lookahead_days)
-    if scraper in ("gem", "malheur"):
+    if scraper in ("gem", "malheur", "agency"):
         return _scrape_link_index(jurisdiction_cfg, lookback_days, lookahead_days)
     raise ValueError(f"No html scraper wired for {name!r} (scraper={scraper!r})")
 
@@ -103,31 +116,40 @@ def _scrape_inline(cfg: dict, lookback_days: int, lookahead_days: int) -> list[d
     date_from = now - timedelta(days=lookback_days)
     date_to = now + timedelta(days=lookahead_days)
 
-    items = []
+    items, errors = [], []
     for src in cfg.get("sources", []):
         body = src["body"]
         url = src["url"]
         parser = src.get("parser", "agenda")
-        r = _get(url, name, body, timeout=20)
-
-        if parser == "notices":
-            item = _extract_notices(r.text, name, body, url, lookahead_days)
-            if item:
-                log.info(f"{name}/{body}: notices page, "
-                         f"{len(item['doc_text'])} chars, next hearing "
-                         f"{item['meeting_date']}")
-                items.append(item)
+        # Each source is isolated: one blocked page (e.g. a Cloudflare 403 on the
+        # commissioners agenda) must not stop the county's other sources running.
+        try:
+            r = _get(url, name, body, timeout=20)
+            if parser == "notices":
+                item = _extract_notices(r.text, name, body, url, lookahead_days)
+                if item:
+                    log.info(f"{name}/{body}: notices page, "
+                             f"{len(item['doc_text'])} chars, next hearing "
+                             f"{item['meeting_date']}")
+                    items.append(item)
+                else:
+                    log.info(f"{name}/{body}: no readable notice text at {url}")
             else:
-                log.info(f"{name}/{body}: no readable notice text at {url}")
-        else:
-            item = _extract_agenda(r.text, name, body, url, date_from, date_to)
-            if item:
-                log.info(f"{name}/{body}: agenda {item['meeting_date']}, "
-                         f"{len(item['doc_text'])} chars")
-                items.append(item)
-            else:
-                log.info(f"{name}/{body}: no agenda in window at {url}")
+                item = _extract_agenda(r.text, name, body, url, date_from, date_to)
+                if item:
+                    log.info(f"{name}/{body}: agenda {item['meeting_date']}, "
+                             f"{len(item['doc_text'])} chars")
+                    items.append(item)
+                else:
+                    log.info(f"{name}/{body}: no agenda in window at {url}")
+        except Exception as e:
+            log.warning(f"{name}/{body}: {e}")
+            errors.append(f"{body}: {e}")
         time.sleep(0.4)
+    # Surface a failure only if nothing was read at all, so a single blocked
+    # source stays a logged warning rather than blanking the whole county.
+    if not items and errors:
+        raise RuntimeError(f"{name}: all sources failed — " + " | ".join(errors))
     return items
 
 
@@ -225,8 +247,9 @@ def _largest_dated_table(soup: BeautifulSoup):
 
 
 # ---------------------------------------------------------------------------
-# PDF-index engine (Gem + Malheur County Court). A listing page links dated PDFs;
-# resolve, date, pick within the window, fetch, extract text.
+# PDF-index engine (Gem + Malheur County Court + agency pages). A listing page
+# links dated PDFs; resolve, date, pick within the window, fetch, extract text.
+# In 'notices' mode it instead scans the page's own main text.
 #
 # Per-source config:
 #   url        the listing page
@@ -245,62 +268,65 @@ def _scrape_link_index(cfg: dict, lookback_days: int, lookahead_days: int) -> li
     date_from = now - timedelta(days=back)
     date_to = now + timedelta(days=max(lookahead_days, 45))
 
-    items = []
+    items, errors = [], []
     for src in cfg.get("sources", []):
         body = src["body"]
         url = src["url"]
         mode = src.get("mode", "pdf_index")
-        r = _get(url, name, body)
+        # Each source is isolated so one failure can't blank the rest.
+        try:
+            r = _get(url, name, body)
 
-        if mode == "notices":
-            item = _extract_notices(r.text, name, body, url, lookahead_days)
-            if item:
-                log.info(f"{name}/{body}: notices page, "
-                         f"{len(item['doc_text'])} chars")
-                items.append(item)
-            else:
-                log.info(f"{name}/{body}: no readable notice text at {url}")
-            time.sleep(0.4)
-            continue
+            if mode == "notices":
+                item = _extract_notices(r.text, name, body, url, lookahead_days)
+                if item:
+                    log.info(f"{name}/{body}: notices page, "
+                             f"{len(item['doc_text'])} chars")
+                    items.append(item)
+                else:
+                    log.info(f"{name}/{body}: no readable notice text at {url}")
+                time.sleep(0.4)
+                continue
 
-        pdf_match = re.compile(src.get("pdf_match", r"\.pdf"), re.I)
-        pick = src.get("pick", "window")
-        max_docs = int(src.get("max_docs", 6))
+            pdf_match = re.compile(src.get("pdf_match", r"\.pdf"), re.I)
+            pick = src.get("pick", "window")
+            max_docs = int(src.get("max_docs", 6))
 
-        soup = BeautifulSoup(r.text, "lxml")
-        base = _page_base(soup, r.url)
-        links = _select_pdf_links(soup, base, pdf_match)
-        if not links:
-            raise RuntimeError(
-                f"{name}/{body}: no PDF links matching {pdf_match.pattern!r} at "
-                f"{url} (page layout may have changed)")
+            soup = BeautifulSoup(r.text, "lxml")
+            base = _page_base(soup, r.url)
+            links = _select_pdf_links(soup, base, pdf_match)
+            if not links:
+                raise RuntimeError(
+                    f"no PDF links matching {pdf_match.pattern!r} at {url} "
+                    "(page layout may have changed)")
 
-        chosen = _pick_links(links, pick, date_from, date_to, max_docs)
-        if not chosen:
-            log.info(f"{name}/{body}: {len(links)} PDFs found, none in window")
-            continue
+            chosen = _pick_links(links, pick, date_from, date_to, max_docs)
+            if not chosen:
+                log.info(f"{name}/{body}: {len(links)} PDFs found, none in window")
+                continue
 
-        for ln in chosen:
-            try:
+            for ln in chosen:
                 pr = _SESSION.get(ln["url"], timeout=30)
                 pr.raise_for_status()
                 text = _extract_pdf_text(pr.content)
-            except Exception as e:
-                raise RuntimeError(f"{name}/{body}: could not read PDF "
-                                   f"{ln['url'].split('/')[-1]}: {e}")
-            if not text or len(text.strip()) < 40:
-                log.warning(f"{name}/{body}: PDF yielded no text (likely a scan): "
-                            f"{ln['url']}")
-                text = (f"[Agenda/notice PDF posted but no extractable text — "
-                        f"likely a scanned image. Open directly: {ln['url']}]")
-            mdate = ln["date"] or _parse_date(text) or now.strftime("%Y-%m-%d")
-            items.append({
-                "jurisdiction": name, "body": body, "meeting_date": mdate,
-                "title": f"{body} agenda ({mdate})", "url": ln["url"],
-                "doc_text": text, "meeting_doc": text,
-            })
-            log.info(f"{name}/{body}: agenda {mdate}, {len(text)} chars")
-            time.sleep(0.4)
+                if not text or len(text.strip()) < 40:
+                    log.warning(f"{name}/{body}: PDF yielded no text "
+                                f"(likely a scan): {ln['url']}")
+                    text = (f"[Agenda/notice PDF posted but no extractable text — "
+                            f"likely a scanned image. Open directly: {ln['url']}]")
+                mdate = ln["date"] or _parse_date(text) or now.strftime("%Y-%m-%d")
+                items.append({
+                    "jurisdiction": name, "body": body, "meeting_date": mdate,
+                    "title": f"{body} agenda ({mdate})", "url": ln["url"],
+                    "doc_text": text, "meeting_doc": text,
+                })
+                log.info(f"{name}/{body}: agenda {mdate}, {len(text)} chars")
+                time.sleep(0.4)
+        except Exception as e:
+            log.warning(f"{name}/{body}: {e}")
+            errors.append(f"{body}: {e}")
+    if not items and errors:
+        raise RuntimeError(f"{name}: all sources failed — " + " | ".join(errors))
     return items
 
 
