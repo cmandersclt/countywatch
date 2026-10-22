@@ -93,6 +93,12 @@ jurisdictions:
         url: https://www.malheurco.org/county-clerk/county-court-agendas-minutes/
         pdf_match: "County.{0,4}Court.{0,4}Agendas"
         pick: window
+      # County Court minutes — what was actually decided. Same page, "Minutes"
+      # folder, same "Month DD, YYYY" labels.
+      - body: County Court Minutes
+        url: https://www.malheurco.org/county-clerk/county-court-agendas-minutes/
+        pdf_match: "County.{0,4}Court.{0,4}Minutes"
+        pick: window
       # Planning Commission hearings / public notices. Carries the hearing
       # schedule and notice text; scanned as body text so a relevant hearing
       # (applicant, CUP, seismic) trips the keyword filter.
@@ -138,6 +144,27 @@ jurisdictions:
         pick: window
     watch_notes: "Emmett, ID. P&Z legal notices are scans; agendas are text and carry the hearing detail."
 
+  # ---- State regulator: Idaho Oil & Gas Conservation Commission ----
+  # Two of three Yogi counties are in Idaho, and Koloma's seismic/exploration/
+  # well permitting runs through this commission, not the county agendas. New
+  # applications post here for a 10-day public comment window (Idaho Code 47-316),
+  # named by operator. This is the real channel for Koloma's ID filings and for
+  # competitor seismic already active in Payette/Canyon (Explor Geosciences,
+  # Cascade Exploration). Pages are scanned as body text for the keyword filter.
+  - name: Idaho Oil & Gas Commission
+    project: yogi
+    platform: html
+    scraper: agency           # link-index engine, notices mode
+    enabled: true
+    sources:
+      - body: Well Permit Applications
+        url: https://ogcc.idaho.gov/well-permit-applications/
+        mode: notices
+      - body: Administrative Hearings
+        url: https://ogcc.idaho.gov/administrative-hearings/
+        mode: notices
+    watch_notes: "Run by Idaho Dept of Lands. Covers Payette + Gem (ID) and the wider Idaho exploration landscape."
+
 # ---------------------------------------------------------------------------
 # RELEVANCE RULES
 # Stage 1 is a cheap keyword prefilter. Any item whose title or agenda text hits
@@ -163,8 +190,12 @@ relevance:
       - subsurface hydrogen
 
     exploration_and_permits:
+      - seismic
       - seismic survey
+      - seismic permit
       - 2D seismic
+      - 3D seismic
+      - geophysical
       - exploratory well
       - well permit
       - drilling permit
@@ -342,6 +373,31 @@ news_sources:
   - name: capital-press
     jurisdiction: News
     query: 'Koloma OR "natural hydrogen" OR "geologic hydrogen" OR seismic OR CEQA OR "land use" site:capitalpress.com when:1y'
+
+  # ---- State & federal regulators: where Yogi exploration actually surfaces ----
+  # Idaho oil/gas/geothermal/hydrogen exploration landscape (incl. competitors
+  # already running seismic in Payette/Canyon) and the Idaho Oil & Gas Commission.
+  - name: idaho-oil-gas-exploration
+    jurisdiction: News
+    query: 'Idaho ("oil and gas" OR "Oil and Gas Conservation" OR "Explor Geosciences" OR "Cascade Exploration" OR "Snake River Oil" OR Koloma) (seismic OR permit OR hydrogen OR well OR exploration) when:1y'
+
+  # BLM Vale (OR) + Boise (ID) districts — geothermal lease sales and NEPA that
+  # touch Malheur/Payette/Gem. Lease sales are announced on blm.gov and covered
+  # by the trade press.
+  - name: blm-oregon-idaho-energy
+    jurisdiction: News
+    query: '(BLM OR "Bureau of Land Management") (Vale OR "Boise District" OR Malheur OR Payette OR "eastern Oregon" OR Idaho) (geothermal OR hydrogen OR "lease sale" OR seismic OR exploration) when:1y'
+
+  # Geothermal / natural-hydrogen trade coverage scoped to the OR/ID footprint.
+  - name: geothermal-trade-nw
+    jurisdiction: News
+    query: '(Oregon OR Idaho OR Malheur OR Payette OR "eastern Oregon") (geothermal OR "natural hydrogen" OR "geologic hydrogen") (lease OR exploration OR well OR seismic OR project) when:1y'
+
+  # Per-county government news across the three Yogi counties (all three names are
+  # unique to OR/ID, so no out-of-state false positives like the Lake County fix).
+  - name: yogi-county-government
+    jurisdiction: News
+    query: '("Malheur County" OR "Payette County" OR "Gem County") (commissioners OR "county court" OR "planning and zoning" OR "land use" OR ordinance OR "public hearing" OR rezone OR "conditional use") when:1y'
 
 # ---------------------------------------------------------------------------
 # YOUTUBE SOURCES
